@@ -1,0 +1,77 @@
+# Render.com deployment configuration
+# Docs: https://render.com/docs/render-yaml-spec
+
+services:
+
+  # ── Django API ──────────────────────────────────────────────────────────────
+  - type: web
+    name: saas-billing-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: saas-billing-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: saas-billing-redis
+          type: redis
+          property: connectionString
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+
+  # ── Celery Worker ───────────────────────────────────────────────────────────
+  - type: worker
+    name: saas-billing-celery
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A config.celery_app worker --loglevel=info --concurrency=2
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings.production
+      - key: SECRET_KEY
+        fromService:
+          name: saas-billing-api
+          type: web
+          envVarKey: SECRET_KEY
+      - key: DATABASE_URL
+        fromDatabase:
+          name: saas-billing-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: saas-billing-redis
+          type: redis
+          property: connectionString
+      - key: STRIPE_SECRET_KEY
+        sync: false
+
+databases:
+  - name: saas-billing-db
+    databaseName: saas_billing
+    user: saas_user
+    plan: free
+
+  - name: saas-billing-redis
+    type: redis
+    plan: free
